@@ -1,0 +1,85 @@
+name: Build iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'app/**'
+      - '.github/workflows/build-ios.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.0.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Xcode
+        run: xcodebuild -version
+
+      - name: Check iOS SDK
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i -A2 'iOS SDKs'
+          xcrun simctl list runtimes 2>/dev/null | grep -i ios || true
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.7'
+          channel: 'stable'
+          cache: true
+
+      - name: Flutter doctor
+        run: flutter doctor -v
+
+      - name: Pub get
+        working-directory: app
+        run: flutter pub get
+
+      - name: Build unsigned IPA (Flutter + no signing)
+        working-directory: app
+        run: |
+          # 1) 让 Flutter 生成 App.framework / flutter_assets / Generated.xcconfig / SPM 包
+          flutter build ios --release --no-codesign --config-only \
+            --build-name=1.0.12 --build-number=${{ github.run_number }} || true
+
+          # 2) 用 archive 构建（archive 不走 destination 解析，避免
+          #    "iOS 18.2 is not installed" 的平台运行时检查）
+          set -x
+          xcodebuild -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$PWD/build/ios_dd" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            build
+          set +x
+          echo "--- products ---"
+          find build/ios_dd/Build/Products -maxdepth 2 -name '*.app' -o -maxdepth 2 -name '*.framework' | head
+
+      - name: Package unsigned IPA
+        working-directory: app
+        run: |
+          APP=$(find build/ios_dd/Build/Products/Release-iphoneos -maxdepth 1 -name 'Runner.app' | head -1)
+          echo "APP=$APP"
+          test -d "$APP" || { echo "Runner.app not found"; exit 1; }
+          rm -rf build/Payload && mkdir -p build/Payload
+          cp -r "$APP" build/Payload/Runner.app
+          cd build && zip -qry dsh-ios-unsign.ipa Payload
+          ls -lh dsh-ios-unsign.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-ios-unsign
+          path: app/build/dsh-ios-unsign.ipa
+          retention-days: 30
