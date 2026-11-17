@@ -71,7 +71,10 @@ class SessionDeleteTile extends ConsumerWidget {
       enabled: enabled,
       leading: Icon(AppIcons.delete, color: enabled ? color : null),
       title: Text(context.l10n.shellDeletePermanently, style: TextStyle(color: enabled ? color : null)),
-      subtitle: Text(!current ? context.l10n.shellDeleteOwnerChanged : reason ?? context.l10n.shellDeleteNoUndo),
+      subtitle: Text(
+        '${!current ? context.l10n.shellDeleteOwnerChanged : reason ?? context.l10n.shellDeleteNoUndo}'
+        ' [dbg current=$current reason=${reason == null ? "ok" : "blocked"} avail=${ref.watch(sessionDeletionAvailableProvider).value}]',
+      ),
       onTap: enabled ? onTap : null,
     );
   }

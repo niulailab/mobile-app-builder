@@ -553,18 +553,18 @@ class _SessionList extends ConsumerWidget {
                       title: Text(context.l10n.shellMultiSelect),
                       onTap: () => Navigator.pop(sheet, 'select'),
                     ),
-                    ListTile(
-                      leading: const Icon(AppIcons.archive),
-                      title: Text(context.l10n.shellArchive),
-                      subtitle: Text(context.l10n.shellArchiveStopsTurn),
-                      onTap: () => Navigator.pop(sheet, 'archive'),
-                    ),
                     SessionDeleteTile(
                       ids: [s.sessionId],
                       owner: deletionOwner,
                       onTap: () {
                         if (deletionOwner?.isCurrent(ref) == true) Navigator.pop(sheet, 'delete');
                       },
+                    ),
+                    ListTile(
+                      leading: const Icon(AppIcons.archive),
+                      title: Text(context.l10n.shellArchive),
+                      subtitle: Text(context.l10n.shellArchiveStopsTurn),
+                      onTap: () => Navigator.pop(sheet, 'archive'),
                     ),
                   ],
                 ),
