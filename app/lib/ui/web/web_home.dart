@@ -32,6 +32,7 @@ import '../../links/share_intake.dart';
 import '../../pets/overlay_channel.dart' show petOverlayChannelProvider;
 import '../../pets/pet_overlay_bridge.dart';
 import '../../state/compose_inbox.dart';
+import '../../state/connection_state.dart' show hostLinkStatusProvider;
 import '../../state/hosts_state.dart';
 import '../../state/sessions_state.dart';
 import '../../state/settings_state.dart';
@@ -155,7 +156,9 @@ class _WebHomeState extends ConsumerState<WebHome> {
     final phoneLayout = ref.watch(settingsProvider.select((s) => s.webPhoneLayout));
     final Widget page = switch (access) {
       LocalDshWeb() => LocalWebScreen(handle: _handle, link: _link, onSession: _onSession),
-      SshDshWeb(:final url, :final hostName) => WebViewPage(
+      SshDshWeb(:final url, :final hostName) => _SshWebWithRecovery(
+        host: ref.watch(activeHostProvider),
+        child: WebViewPage(
         // A new forward (reconnect) or layout switch: a new page.
         key: ValueKey((url, phoneLayout)),
         url: url,
@@ -170,6 +173,7 @@ class _WebHomeState extends ConsumerState<WebHome> {
         root: true,
         link: _link,
         onSession: _onSession,
+        ),
       ),
       NoDshWeb(:final reason) => _NoWeb(reason: reason, handle: _handle),
     };
@@ -337,4 +341,34 @@ class _WebEntryHostState extends ConsumerState<WebEntryHost> {
 
   @override
   Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+/// SSH 页面 + 链路状态监听：隧道恢复后重建 WebView。
+///
+/// 只换 key 不够——错误页停在一个挂死的 WebView 实例上，
+/// 必须让整棵子树重建，才能拿到新的本地转发通道。
+class _SshWebWithRecovery extends ConsumerStatefulWidget {
+  const _SshWebWithRecovery({required this.host, required this.child});
+
+  final HostRef host;
+  final Widget child;
+
+  @override
+  ConsumerState<_SshWebWithRecovery> createState() => _SshWebWithRecoveryState();
+}
+
+class _SshWebWithRecoveryState extends ConsumerState<_SshWebWithRecovery> {
+  int _epoch = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen(hostLinkStatusProvider(widget.host), (prev, next) {
+      final was = prev?.value?.phase;
+      final now = next.value?.phase;
+      if (now == HostLinkPhase.connected && was != HostLinkPhase.connected) {
+        setState(() => _epoch++);
+      }
+    });
+    return KeyedSubtree(key: ValueKey('ssh-web-$_epoch'), child: widget.child);
+  }
 }

@@ -945,6 +945,7 @@ class _WebViewPageState extends State<WebViewPage> {
 
   void _onHide() => _hiddenAt = DateTime.now();
 
+
   void _onShow() {
     final after = widget.reloadAfterBackground;
     final hidden = _hiddenAt;
@@ -1095,7 +1096,19 @@ class _WebViewPageState extends State<WebViewPage> {
                         padding.right,
                         insets.layerBottom + shrink,
                       ),
-                      child: _LoadError(detail: error, onRetry: () => unawaited(_controller.loadRequest(widget.url))),
+                      // 重试时重建 WebView（新 generation）而不是对同一个实例
+                      // loadRequest：SSH 隧道恢复后旧实例的 socket 仍挂死，
+                      // 原位 reload 永远失败，只有新实例能重新建连。
+                      child: _LoadError(
+                        detail: error,
+                        onRetry: () {
+                          setState(() {
+                            _error = null;
+                            _generation++;
+                          });
+                          unawaited(_controller.loadRequest(widget.url));
+                        },
+                      ),
                     ),
                   ),
                 ),
