@@ -99,6 +99,7 @@ class WebViewPage extends StatefulWidget {
   /// the client's stored selection; null for none).
   final ValueChanged<String?>? onSession;
 
+
   bool get _adapt => dshWeb && phoneLayout;
 
   @override
@@ -628,6 +629,13 @@ class _WebViewPageState extends State<WebViewPage> {
   int _progress = 0;
   bool _loading = true;
   String? _error;
+
+  /// 最近一次资源错误（诊断用，随错误页显示）。
+  String? _lastResourceError;
+
+  /// 诊断：页面生命周期是否走完（区分「加载失败」和「加载了但 JS 没跑」）。
+  bool _pageStarted = false;
+  bool _pageFinished = false;
   DateTime? _hiddenAt;
   Brightness? _bgFor;
   WebPageInsets? _insets;
@@ -678,7 +686,9 @@ class _WebViewPageState extends State<WebViewPage> {
           NavigationDelegate(
             // DSH Web keeps to its own origin; other pages open in the browser.
             onNavigationRequest: widget.dshWeb ? _onDshWebNavigation : null,
-            onPageStarted: (_) {
+            onPageStarted: (url) {
+              _lastResourceError = null;
+              _pageStarted = true;
               if (!mounted || controller != _controller) return;
               _files.invalidate();
               _set(() {
@@ -688,6 +698,7 @@ class _WebViewPageState extends State<WebViewPage> {
             },
             onProgress: (p) => _set(() => _progress = p),
             onPageFinished: (_) {
+              _pageFinished = true;
               _set(() => _loading = false);
               _appliedInsets = null;
               _applyInsets();
@@ -697,19 +708,16 @@ class _WebViewPageState extends State<WebViewPage> {
               if (widget.dshWeb && widget.onSession != null) {
                 unawaited(_injectStateBridge());
               }
+              if (widget.dshWeb) unawaited(_injectDiagnostics());
             },
             onWebResourceError: (error) {
-              if (kDebugMode) {
-                // URLs and descriptions may contain the Host's token.
-                debugPrint(
-                  '[webview] resource: code=${error.errorCode} '
-                  'type=${error.errorType?.name ?? 'unknown'} mainFrame=${error.isForMainFrame}',
-                );
-              }
+              // 诊断：release 也留下错误痕迹（不含 URL，避免泄漏 token）。
+              _lastResourceError =
+                  'code=${error.errorCode} type=${error.errorType?.name ?? "?"} main=${error.isForMainFrame}\n${error.description}';
               if (error.isForMainFrame ?? true) {
                 _set(() {
                   _loading = false;
-                  _error = error.description;
+                  _error = _lastResourceError;
                 });
               }
             },
@@ -923,6 +931,54 @@ class _WebViewPageState extends State<WebViewPage> {
       js,
     ].join('\n');
   });
+
+
+
+  /// 诊断：页面加载完成后 3 秒还没渲染出 DSH Web 的界面时，
+  /// 在页面上盖一层可见信息，方便在手机上定位白屏原因。
+  Future<void> _injectDiagnostics() async {
+    await Future<void>.delayed(const Duration(seconds: 3));
+    if (!mounted || _gone) return;
+    const probe = r'''
+(function () {
+  if (window.__dshDiag) return;
+  window.__dshDiag = 1;
+  try {
+    var hasRoot = !!document.querySelector('#root, #app, [data-dsh-root]');
+    var bodyLen = (document.body && document.body.innerHTML) ? document.body.innerHTML.length : 0;
+    var scripts = document.querySelectorAll('script').length;
+    var links = document.querySelectorAll('link[rel=stylesheet]').length;
+    var hasSidebar = !!document.querySelector('[class*="sidebar"], [data-dsh-sidebar], aside');
+    var cookie = document.cookie ? 'yes' : 'no';
+    var info = [
+      'URL: ' + location.pathname + (location.search ? '?token=***' : ''),
+      'body HTML: ' + bodyLen + ' chars',
+      'scripts: ' + scripts + '  css: ' + links,
+      '#root: ' + (hasRoot ? 'yes' : 'NO'),
+      'sidebar: ' + (hasSidebar ? 'yes' : 'NO'),
+      'cookie: ' + cookie,
+      'title: ' + document.title,
+      'readyState: ' + document.readyState
+    ].join('\n');
+    var d = document.createElement('pre');
+    d.textContent = 'DSH 网页版诊断\n' + info;
+    d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;'
+      + 'background:rgba(0,0,0,.88);color:#0f0;font:11px/1.5 monospace;'
+      + 'padding:10px;white-space:pre-wrap;pointer-events:auto;';
+    d.onclick = function () { d.remove(); };
+    (document.body || document.documentElement).appendChild(d);
+  } catch (e) {
+    var d2 = document.createElement('div');
+    d2.textContent = 'DSH diag error: ' + e;
+    d2.style.cssText = 'position:fixed;top:0;left:0;z-index:2147483647;background:red;color:#fff;padding:8px;font:12px monospace;';
+    (document.body || document.documentElement).appendChild(d2);
+  }
+})();
+''';
+    try {
+      await _controller.runJavaScript(probe);
+    } catch (_) {}
+  }
 
   Future<void> _injectPhoneLayout() async {
     try {

@@ -159,6 +159,8 @@ class _WebHomeState extends ConsumerState<WebHome> {
     final Widget page = switch (access) {
       LocalDshWeb() => LocalWebScreen(handle: _handle, link: _link, onSession: _onSession),
       SshDshWeb(:final url, :final hostName) => _SshWebWithRecovery(
+        // token 每次服务重启都会变：纳入 key，页面才能换成新 URL。
+        identity: url.toString(),
         host: ref.watch(activeHostProvider),
         child: WebViewPage(
         // A new forward (reconnect) or layout switch: a new page.
@@ -350,10 +352,13 @@ class _WebEntryHostState extends ConsumerState<WebEntryHost> {
 /// 只换 key 不够——错误页停在一个挂死的 WebView 实例上，
 /// 必须让整棵子树重建，才能拿到新的本地转发通道。
 class _SshWebWithRecovery extends ConsumerStatefulWidget {
-  const _SshWebWithRecovery({required this.host, required this.child});
+  const _SshWebWithRecovery({required this.host, required this.child, required this.identity});
 
   final HostRef host;
   final Widget child;
+
+  /// 页面的身份（url + token）。变了就整棵子树重建。
+  final String identity;
 
   @override
   ConsumerState<_SshWebWithRecovery> createState() => _SshWebWithRecoveryState();
@@ -371,6 +376,6 @@ class _SshWebWithRecoveryState extends ConsumerState<_SshWebWithRecovery> {
         setState(() => _epoch++);
       }
     });
-    return KeyedSubtree(key: ValueKey('ssh-web-$_epoch'), child: widget.child);
+    return KeyedSubtree(key: ValueKey('ssh-web-$_epoch-${widget.identity}'), child: widget.child);
   }
 }
