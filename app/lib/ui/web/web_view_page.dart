@@ -723,7 +723,6 @@ class _WebViewPageState extends State<WebViewPage> {
               if (widget.dshWeb && widget.onSession != null) {
                 unawaited(_injectStateBridge());
               }
-              if (widget.dshWeb) unawaited(_injectDiagnostics());
             },
             onWebResourceError: (error) {
               // 诊断：release 也留下错误痕迹（不含 URL，避免泄漏 token）。
@@ -994,53 +993,6 @@ class _WebViewPageState extends State<WebViewPage> {
     final value = pair.substring(eq + 1).trim();
     if (name.isEmpty) return null;
     return WebViewCookie(name: name, value: value, domain: origin.host, path: '/');
-  }
-
-  /// 诊断：页面加载完成后 3 秒还没渲染出 DSH Web 的界面时，
-  /// 在页面上盖一层可见信息，方便在手机上定位白屏原因。
-  Future<void> _injectDiagnostics() async {
-    await Future<void>.delayed(const Duration(seconds: 3));
-    if (!mounted || _gone) return;
-    const probe = r'''
-(function () {
-  if (window.__dshDiag) return;
-  window.__dshDiag = 1;
-  try {
-    var hasRoot = !!document.querySelector('#root, #app, [data-dsh-root]');
-    var bodyLen = (document.body && document.body.innerHTML) ? document.body.innerHTML.length : 0;
-    var scripts = document.querySelectorAll('script').length;
-    var links = document.querySelectorAll('link[rel=stylesheet]').length;
-    var hasSidebar = !!document.querySelector('[class*="sidebar"], [data-dsh-sidebar], aside');
-    var cookie = document.cookie ? 'yes' : 'no';
-    var info = [
-      'URL: ' + location.pathname + (location.search ? '?token=***' : ''),
-      'body HTML: ' + bodyLen + ' chars',
-      'body text: ' + ((document.body && document.body.innerText) ? document.body.innerText.slice(0, 120) : '(none)'),
-      'scripts: ' + scripts + '  css: ' + links,
-      '#root: ' + (hasRoot ? 'yes' : 'NO'),
-      'sidebar: ' + (hasSidebar ? 'yes' : 'NO'),
-      'cookie: ' + cookie + '  [' + (document.cookie || '(empty)').slice(0, 80) + ']',
-      'title: ' + document.title,
-      'readyState: ' + document.readyState
-    ].join('\n');
-    var d = document.createElement('pre');
-    d.textContent = 'DSH 网页版诊断\n' + info;
-    d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;'
-      + 'background:rgba(0,0,0,.88);color:#0f0;font:11px/1.5 monospace;'
-      + 'padding:10px;white-space:pre-wrap;pointer-events:auto;';
-    d.onclick = function () { d.remove(); };
-    (document.body || document.documentElement).appendChild(d);
-  } catch (e) {
-    var d2 = document.createElement('div');
-    d2.textContent = 'DSH diag error: ' + e;
-    d2.style.cssText = 'position:fixed;top:0;left:0;z-index:2147483647;background:red;color:#fff;padding:8px;font:12px monospace;';
-    (document.body || document.documentElement).appendChild(d2);
-  }
-})();
-''';
-    try {
-      await _controller.runJavaScript(probe);
-    } catch (_) {}
   }
 
   Future<void> _injectPhoneLayout() async {

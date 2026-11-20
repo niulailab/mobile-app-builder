@@ -39,11 +39,6 @@ final class NoDshWeb extends DshWebAccess {
   final String reason;
 }
 
-/// 让 provider 对 (token, phase) 变化敏感：值本身不使用，只用来触发重建。
-final _tokenEpochProvider = Provider.autoDispose.family<int, (HostRef, String, String)>(
-  (ref, key) => Object.hash(key.$2, key.$3),
-);
-
 /// The active host's DSH Web, if it has one the app can reach.
 final dshWebAccessProvider = Provider.autoDispose<DshWebAccess>((ref) {
   final host = ref.watch(activeHostProvider);
@@ -54,18 +49,11 @@ final dshWebAccessProvider = Provider.autoDispose<DshWebAccess>((ref) {
       return NoDshWeb(appL10n.webRelayUnavailable);
     case HostKind.ssh:
       // Rebuild once the link connects (or reconnects to a new process).
-      final status = ref.watch(hostLinkStatusProvider(host));
+      ref.watch(hostLinkStatusProvider(host));
       final link = ref.watch(hostLinkProvider(host));
       final name = ref.watch(hostNameProvider(host)) ?? appL10n.webSshHost;
       final port = link is SshHostLink ? link.localPort : null;
-      var token = link is SshHostLink ? link.endpoint?.token : null;
-      // 服务重启会换 token，但状态可能仍是 connected（旧状态流没断）。
-      // 从链路自身再取一次当前 endpoint，保证 token 不是快照。
-      if (link is SshHostLink) {
-        token = link.endpoint?.token ?? token;
-      }
-      // 状态流每次 emit 都重新算（含 connecting → connected 的 token 更换）。
-      ref.watch(_tokenEpochProvider((host, token ?? '', status.value?.phase?.name ?? '')));
+      final token = link is SshHostLink ? link.endpoint?.token : null;
       if (port == null || token == null) {
         return NoDshWeb(appL10n.webConnectHostFirst(name));
       }
