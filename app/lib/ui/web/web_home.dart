@@ -33,6 +33,7 @@ import '../../pets/overlay_channel.dart' show petOverlayChannelProvider;
 import '../../pets/pet_overlay_bridge.dart';
 import '../../state/compose_inbox.dart';
 import '../../state/connection_state.dart' show hostLinkStatusProvider;
+import '../../remote/link_status.dart' show HostLinkPhase;
 import '../../state/hosts_state.dart';
 import '../../state/sessions_state.dart';
 import '../../state/settings_state.dart';
@@ -98,6 +99,7 @@ class _WebHomeState extends ConsumerState<WebHome> {
     _webSession = id;
     ref.read(currentSessionProvider.notifier).select(id);
   }
+
 
   void _take(WebOpenRequest request) {
     ref.read(webOpenProvider.notifier).taken(request);

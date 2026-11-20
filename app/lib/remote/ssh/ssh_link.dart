@@ -457,7 +457,12 @@ class SshHostLink implements HostLink {
 
   void _lost(HostLinkError reason) {
     if (_closed || _recovering || _status.phase == HostLinkPhase.failed) return;
-    if (_status.phase != HostLinkPhase.connected) return;
+    // 非 connected 阶段断了也要清理：connecting 时 WebView 的请求已经排在
+    // _pending 里等 _open()，不 drop 就会永久挂着（表现为页面白屏、服务端无日志）。
+    if (_status.phase != HostLinkPhase.connected) {
+      _forwarder?.dropConnections();
+      return;
+    }
     _teardownTransport();
     unawaited(_recover(reason).then((_) {}, onError: (_) {}));
   }
