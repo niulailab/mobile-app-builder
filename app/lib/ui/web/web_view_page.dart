@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -678,6 +679,11 @@ class _WebViewPageState extends State<WebViewPage> {
   }
 
   Future<void> _setUp(WebViewController controller) async {
+    // iOS WKWebView 在 303 重定向里会丢弃 SameSite=Strict 的 cookie，
+    // 导致 ?token= 换来的会话带不到 / 上（服务端回 401，页面空白）。
+    // 这里先用 Dart 自己完成 token→cookie 交换，把 cookie 注入 WebView，
+    // 然后直接加载根路径，绕开那次 303。
+    final startUrl = widget.dshWeb ? await _exchangeLaunchToken() : widget.url;
     await Future.wait(
       [
         controller.setJavaScriptMode(JavaScriptMode.unrestricted),
@@ -736,7 +742,7 @@ class _WebViewPageState extends State<WebViewPage> {
     // After the navigation delegate: the guard wraps the client it set.
     await _guard.attach(controller, dark: _dark, textZoom: _textZoom);
     if (!mounted || controller != _controller) return;
-    await controller.loadRequest(widget.url).catchError((_) {});
+    await controller.loadRequest(startUrl).catchError((_) {});
   }
 
   void _onRendererGone(bool crashed) {
@@ -933,6 +939,53 @@ class _WebViewPageState extends State<WebViewPage> {
   });
 
 
+
+  /// 用启动 URL 里的 token 换一次会话 cookie，并写进 WebView 的 cookie 仓库。
+  ///
+  /// 返回应当加载的 URL：交换成功时是去掉 token 的根路径（cookie 已就位），
+  /// 失败时原样返回 [WebViewPage.url]（回落到原来的 303 流程）。
+  Future<Uri> _exchangeLaunchToken() async {
+    final launch = widget.url;
+    if (!launch.queryParameters.containsKey('token')) return launch;
+    final root = launch.replace(queryParameters: const <String, String>{});
+    try {
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+      try {
+        final request = await client.getUrl(launch);
+        request.followRedirects = false;
+        final response = await request.close().timeout(const Duration(seconds: 10));
+        final cookies = response.headers[HttpHeaders.setCookieHeader] ?? const <String>[];
+        await response.drain<void>();
+        if (cookies.isEmpty) return launch;
+        final manager = WebViewCookieManager();
+        var wrote = false;
+        for (final raw in cookies) {
+          final parsed = _parseSetCookie(raw, root);
+          if (parsed == null) continue;
+          await manager.setCookie(parsed);
+          wrote = true;
+        }
+        // 写进去了就直接开根路径；否则退回原 URL，让页面自己走 303。
+        return wrote ? root : launch;
+      } finally {
+        client.close(force: true);
+      }
+    } catch (_) {
+      return launch;
+    }
+  }
+
+  /// `Set-Cookie` 头 → [WebViewCookie]。只取 name=value 与 path/domain/过期。
+  WebViewCookie? _parseSetCookie(String raw, Uri origin) {
+    final parts = raw.split(';');
+    final pair = parts.first.trim();
+    final eq = pair.indexOf('=');
+    if (eq <= 0) return null;
+    final name = pair.substring(0, eq).trim();
+    final value = pair.substring(eq + 1).trim();
+    if (name.isEmpty) return null;
+    return WebViewCookie(name: name, value: value, domain: origin.host, path: '/');
+  }
 
   /// 诊断：页面加载完成后 3 秒还没渲染出 DSH Web 的界面时，
   /// 在页面上盖一层可见信息，方便在手机上定位白屏原因。
