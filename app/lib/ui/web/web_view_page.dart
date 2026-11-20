@@ -679,6 +679,15 @@ class _WebViewPageState extends State<WebViewPage> {
   }
 
   Future<void> _setUp(WebViewController controller) async {
+    // 清缓存：服务器曾经回过 401 空体（认证未就绪），WKWebView 把它连同
+    // 304 一起缓存了，之后每次 / 都拿缓存里的空页面 → 永远白屏。
+    // 每次建 WebView 前清一次，保证拿到真实的响应。
+    if (widget.dshWeb) {
+      try {
+        await controller.clearCache();
+        await WebViewCookieManager().clearCookies();
+      } catch (_) {}
+    }
     // iOS WKWebView 在 303 重定向里会丢弃 SameSite=Strict 的 cookie，
     // 导致 ?token= 换来的会话带不到 / 上（服务端回 401，页面空白）。
     // 这里先用 Dart 自己完成 token→cookie 交换，把 cookie 注入 WebView，
@@ -1006,10 +1015,11 @@ class _WebViewPageState extends State<WebViewPage> {
     var info = [
       'URL: ' + location.pathname + (location.search ? '?token=***' : ''),
       'body HTML: ' + bodyLen + ' chars',
+      'body text: ' + ((document.body && document.body.innerText) ? document.body.innerText.slice(0, 120) : '(none)'),
       'scripts: ' + scripts + '  css: ' + links,
       '#root: ' + (hasRoot ? 'yes' : 'NO'),
       'sidebar: ' + (hasSidebar ? 'yes' : 'NO'),
-      'cookie: ' + cookie,
+      'cookie: ' + cookie + '  [' + (document.cookie || '(empty)').slice(0, 80) + ']',
       'title: ' + document.title,
       'readyState: ' + document.readyState
     ].join('\n');
