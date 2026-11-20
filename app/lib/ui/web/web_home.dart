@@ -170,7 +170,8 @@ class _WebHomeState extends ConsumerState<WebHome> {
         subtitle: hostName,
         externalDisabledReason: context.l10n.webSshAppOnly,
         // Android suspends the page in the background and its socket drops.
-        reloadAfterBackground: const Duration(seconds: 60),
+        // iOS 挂起 WebView 很快：30 秒后回来就整棵重建，别等 60 秒。
+        reloadAfterBackground: const Duration(seconds: 30),
         dshWeb: true,
         phoneLayout: phoneLayout,
         leading: _handle,

@@ -634,6 +634,9 @@ class _WebViewPageState extends State<WebViewPage> {
   /// 最近一次资源错误（诊断用，随错误页显示）。
   String? _lastResourceError;
 
+  /// 缓存已经清过一次：后续重建（后台恢复）不再重复清。
+  bool _cacheKept = false;
+
   /// 诊断：页面生命周期是否走完（区分「加载失败」和「加载了但 JS 没跑」）。
   bool _pageStarted = false;
   bool _pageFinished = false;
@@ -682,11 +685,14 @@ class _WebViewPageState extends State<WebViewPage> {
     // 清缓存：服务器曾经回过 401 空体（认证未就绪），WKWebView 把它连同
     // 304 一起缓存了，之后每次 / 都拿缓存里的空页面 → 永远白屏。
     // 每次建 WebView 前清一次，保证拿到真实的响应。
-    if (widget.dshWeb) {
+    // 只在第一次（以及用户主动重试）清一次：从后台恢复时的重建清掉缓存
+    // 会让页面白等一轮，反而更慢。
+    if (widget.dshWeb && !_cacheKept) {
       try {
         await controller.clearCache();
         await WebViewCookieManager().clearCookies();
       } catch (_) {}
+      _cacheKept = true;
     }
     // iOS WKWebView 在 303 重定向里会丢弃 SameSite=Strict 的 cookie，
     // 导致 ?token= 换来的会话带不到 / 上（服务端回 401，页面空白）。
@@ -1021,9 +1027,12 @@ class _WebViewPageState extends State<WebViewPage> {
     final after = widget.reloadAfterBackground;
     final hidden = _hiddenAt;
     _hiddenAt = null;
-    if (after != null && hidden != null && !_gone && DateTime.now().difference(hidden) > after) {
-      unawaited(_controller.reload());
-    }
+    if (after == null || hidden == null || _gone) return;
+    final away = DateTime.now().difference(hidden);
+    if (away <= after) return;
+    // iOS 长时间挂起会回收 WebView 的进程：此时 reload() 打在一个死掉的
+    // 实例上，页面只会停在「页面没有打开」。只能整棵重建。
+    _reopen();
   }
 
   @override
@@ -1173,11 +1182,9 @@ class _WebViewPageState extends State<WebViewPage> {
                       child: _LoadError(
                         detail: error,
                         onRetry: () {
-                          setState(() {
-                            _error = null;
-                            _generation++;
-                          });
-                          unawaited(_controller.loadRequest(widget.url));
+                          // 用户主动重试：把缓存也清掉再重建，避免又拿回坏响应。
+                          _cacheKept = false;
+                          _reopen();
                         },
                       ),
                     ),
