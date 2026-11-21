@@ -32,7 +32,8 @@ import '../../links/share_intake.dart';
 import '../../pets/overlay_channel.dart' show petOverlayChannelProvider;
 import '../../pets/pet_overlay_bridge.dart';
 import '../../state/compose_inbox.dart';
-import '../../state/connection_state.dart' show hostLinkStatusProvider;
+import '../../remote/ssh/ssh_link.dart' show SshHostLink;
+import '../../state/connection_state.dart' show hostLinkProvider, hostLinkStatusProvider;
 import '../../remote/link_status.dart' show HostLinkPhase;
 import '../../state/hosts_state.dart';
 import '../../state/sessions_state.dart';
@@ -178,6 +179,10 @@ class _WebHomeState extends ConsumerState<WebHome> {
         root: true,
         link: _link,
         onSession: _onSession,
+        onConnectionSuspected: () {
+          final link = ref.read(hostLinkProvider(ref.read(activeHostProvider)));
+          if (link is SshHostLink) link.kick();
+        },
         ),
       ),
       NoDshWeb(:final reason) => _NoWeb(reason: reason, handle: _handle),

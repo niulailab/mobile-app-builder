@@ -48,6 +48,7 @@ class WebViewPage extends StatefulWidget {
     this.root = false,
     this.link,
     this.onSession,
+    this.onConnectionSuspected,
   });
 
   final Uri url;
@@ -99,6 +100,10 @@ class WebViewPage extends StatefulWidget {
   /// With [dshWeb]: the conversation on screen, whenever it changes (from
   /// the client's stored selection; null for none).
   final ValueChanged<String?>? onSession;
+
+  /// 主文档连不上本地转发端口时调用（iOS 的 -1004）：多半是 App 被挂起后
+  /// 本地 ServerSocket 被回收了，需要上层把 SSH 链路踢一下重建转发。
+  final VoidCallback? onConnectionSuspected;
 
 
   bool get _adapt => dshWeb && phoneLayout;
@@ -739,6 +744,11 @@ class _WebViewPageState extends State<WebViewPage> {
                   _loading = false;
                   _error = _lastResourceError;
                 });
+                // -1004 / -1009：本地转发端口连不上，链路需要重建。
+                final code = error.errorCode;
+                if (widget.dshWeb && (code == -1004 || code == -1009 || code == -1005)) {
+                  widget.onConnectionSuspected?.call();
+                }
               }
             },
           ),
