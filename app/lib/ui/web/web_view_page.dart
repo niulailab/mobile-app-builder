@@ -744,10 +744,11 @@ class _WebViewPageState extends State<WebViewPage> {
                   _loading = false;
                   _error = _lastResourceError;
                 });
-                // -1004 / -1009：本地转发端口连不上，链路需要重建。
+                // -1004 / -1009：本地转发端口连不上。先探一次本地端口，
+                // 把结论写进错误详情，再让上层踢链路。
                 final code = error.errorCode;
                 if (widget.dshWeb && (code == -1004 || code == -1009 || code == -1005)) {
-                  widget.onConnectionSuspected?.call();
+                  unawaited(_probeLocalPort(error.errorCode));
                 }
               }
             },
@@ -1009,6 +1010,29 @@ class _WebViewPageState extends State<WebViewPage> {
     final value = pair.substring(eq + 1).trim();
     if (name.isEmpty) return null;
     return WebViewCookie(name: name, value: value, domain: origin.host, path: '/');
+  }
+
+  /// 探测当前 URL 的本地端口是否还能连上，结论追加到错误详情。
+  ///
+  /// -1004 可能是「端口没了」也可能是「端口在但不响应」，两者修法不同，
+  /// 所以这里先把事实测出来给页面上看。
+  Future<void> _probeLocalPort(int code) async {
+    final host = widget.url.host;
+    final port = widget.url.port;
+    String verdict;
+    try {
+      final socket = await Socket.connect(host, port, timeout: const Duration(seconds: 3));
+      socket.destroy();
+      verdict = 'probe: port $port OPEN (forwarder alive)';
+    } catch (e) {
+      verdict = 'probe: port $port DEAD ($e)';
+    }
+    if (!mounted) return;
+    _set(() {
+      _error = '${_lastResourceError ?? 'code=$code'}\n$verdict';
+    });
+    // 端口活着但连不上：是 WebView 侧的问题，踢链路也救不回来，只重建页面。
+    widget.onConnectionSuspected?.call();
   }
 
   Future<void> _injectPhoneLayout() async {

@@ -181,7 +181,9 @@ class _WebHomeState extends ConsumerState<WebHome> {
         onSession: _onSession,
         onConnectionSuspected: () {
           final link = ref.read(hostLinkProvider(ref.read(activeHostProvider)));
-          if (link is SshHostLink) link.kick();
+          // 直接换一个新的 LocalForwarder：iOS 挂起后旧 ServerSocket 可能已
+          // 被回收，而 SSH 心跳正常，kick() 会判定无事可做。
+          if (link is SshHostLink) unawaited(link.rebuildForwarder());
         },
         ),
       ),

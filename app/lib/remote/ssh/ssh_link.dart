@@ -520,6 +520,22 @@ class SshHostLink implements HostLink {
   void debugDropTransport() => _transport?.close();
 
   @override
+  /// 强制重建本地转发器（iOS 挂起后 ServerSocket 可能被系统回收，
+  /// 此时 SSH 心跳仍然正常，kick() 判定无事可做，必须直接换一个新的）。
+  Future<void> rebuildForwarder() async {
+    if (_closed) return;
+    try {
+      await _forwarder?.close();
+    } catch (_) {}
+    _forwarder = null;
+    if (_closed) return;
+    _forwarder = await LocalForwarder.bind(_openChannel);
+    // 端口变了：让连接层重新读 endpoint（baseUri 跟着新端口）。
+    _needsRelogin = true;
+    _backoff.reset();
+    _lost(HostLinkError(HostLinkErrorKind.unreachable, appL10n.remoteErrSshNetworkChanged, retryable: true));
+  }
+
   void kick() {
     if (_closed) return;
     switch (_status.phase) {
